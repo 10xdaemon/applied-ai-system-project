@@ -17,6 +17,8 @@ class Song:
     valence: float
     danceability: float
     acousticness: float
+    speechiness: float
+    instrumentalness: float
 
 @dataclass
 class UserProfile:
@@ -24,10 +26,13 @@ class UserProfile:
     Represents a user's taste preferences.
     Required by tests/test_recommender.py
     """
-    favorite_genre: str
-    favorite_mood: str
+    preferred_mood: str
+    preferred_genre: str
     target_energy: float
-    likes_acoustic: bool
+    target_tempo_bpm: float
+    target_acousticness: float
+    target_speechiness: float
+    sigma: float
 
 class Recommender:
     """
@@ -62,3 +67,13 @@ def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tup
     # TODO: Implement scoring and ranking logic
     # Expected return format: (song_dict, score, explanation)
     return []
+
+user1 = {
+    "preferred_mood": "intense",
+    "preferred_genre": "rock",
+    "target_energy": 0.93,
+    "target_tempo_bpm": 152,
+    "target_acousticness": 0.10,
+    "target_speechiness": 0.06,
+    "sigma": 0.15
+}
