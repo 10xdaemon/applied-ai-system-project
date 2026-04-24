@@ -1,3 +1,7 @@
 pandas
 pytest
 streamlit
+anthropic
+requests
+tavily-python
+python-dotenv

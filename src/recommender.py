@@ -33,6 +33,8 @@ class Song:
     acousticness: float
     speechiness: float = 0.0
     instrumentalness: float = 0.0
+    cover_art_url: str = ""
+    spotify_id: str = ""
 
 
 @dataclass
@@ -92,6 +94,8 @@ _MOOD_POINTS: Dict[int, float] = {0: 1.0, 1: 0.5, 2: 0.2}
 # ---------------------------------------------------------------------------
 
 def _gaussian(diff: float, sigma: float) -> float:
+    if sigma == 0:
+        return 0.0
     return math.exp(-(diff ** 2) / (2 * sigma ** 2))
 
 
