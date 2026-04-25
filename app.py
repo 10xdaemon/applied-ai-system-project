@@ -23,6 +23,10 @@ if "seeds" not in st.session_state:
     st.session_state.seeds = {"artists": [], "genres": []}
 if "profile" not in st.session_state:
     st.session_state.profile = None
+if "seen_ids" not in st.session_state:
+    st.session_state.seen_ids = set()
+if "result_query" not in st.session_state:
+    st.session_state.result_query = ""
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -34,6 +38,7 @@ with st.sidebar:
         max_value=1.0,
         value=0.5,
         step=0.05,
+        key="gaussian_weight",
         help="0 = full LLM scoring · 1 = full Gaussian scoring",
     )
 
@@ -72,12 +77,15 @@ if submitted and query.strip():
         or gaussian_weight != st.session_state.last_weight
     )
     if cache_miss:
+        st.session_state.result = None
         with st.spinner("Building your playlist..."):
             st.session_state.result = run_agent(query, gaussian_weight)
+            st.session_state.result_query = query
             st.session_state.last_query = query
             st.session_state.last_weight = gaussian_weight
             st.session_state.extra_songs = []
             st.session_state.extra_scores = []
+            st.session_state.seen_ids = {s.spotify_id for s in st.session_state.result.songs if s.spotify_id}
             # Extract seeds and profile from reasoning steps for Load More
             for step in st.session_state.result.reasoning_steps:
                 if step["tool"] == "parse_user_intent":
@@ -108,21 +116,12 @@ if result is not None:
             st.warning(w)
 
     # ── Agent reasoning trace ────────────────────────────────────────────────
-    with st.expander("Agent Reasoning", expanded=False):
+    with st.expander(f"Agent Reasoning — \"{st.session_state.result_query}\"", expanded=False):
         for step in result.reasoning_steps:
             st.markdown(f"**`{step['tool']}`**")
             st.json(step["input"], expanded=False)
             st.caption(str(step["output"])[:300])
             st.divider()
-
-    # ── Confidence badge ─────────────────────────────────────────────────────
-    conf_label = (
-        "🟢 High" if result.confidence >= 0.7
-        else ("🟡 Medium" if result.confidence >= 0.3 else "🔴 Low")
-    )
-    st.metric("Confidence", conf_label, help="Gap between rank-1 and rank-2 blended score")
-
-    st.markdown("---")
 
     # ── Top 3 songs: cover art + explanation ─────────────────────────────────
     st.subheader("Your Playlist")
@@ -165,6 +164,8 @@ if result is not None:
             if profile and more:
                 g_scores = [gaussian_score_normalized(profile, s) for s in more]
                 ranked = sorted(zip(more, g_scores), key=lambda x: x[1], reverse=True)
-                st.session_state.extra_songs += [s for s, _ in ranked]
-                st.session_state.extra_scores += [sc for _, sc in ranked]
+                new_ranked = [(s, sc) for s, sc in ranked if s.spotify_id not in st.session_state.seen_ids]
+                st.session_state.extra_songs += [s for s, _ in new_ranked]
+                st.session_state.extra_scores += [sc for _, sc in new_ranked]
+                st.session_state.seen_ids.update(s.spotify_id for s, _ in new_ranked if s.spotify_id)
         st.rerun()

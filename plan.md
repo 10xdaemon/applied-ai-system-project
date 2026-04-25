@@ -14,15 +14,29 @@
 - [x] `run_agent()` — implement the full Claude tool-calling agentic loop (parse intent → tavily search → Spotify fetch → score → explain)
 
 ## Streamlit UI — `app.py`
-- [ ] Import and wire `run_agent` once agent is implemented
-- [ ] Fix preset query buttons (populate `st.session_state["query"]` on click)
-- [ ] Call `run_agent()` on submit and store result
-- [ ] Display guardrail warnings (`result.guardrail_warnings`)
-- [ ] Render agent reasoning trace (`result.reasoning_steps`)
-- [ ] Show confidence badge (High / Medium / Low)
-- [ ] Replace placeholder song cards with `result.songs[:3]` and `result.explanations`
-- [ ] Render songs 4–10 as compact list (`result.songs[3:]`)
-- [ ] Implement Load More pagination
+- [x] Import and wire `run_agent` once agent is implemented
+- [x] Fix preset query buttons (populate `st.session_state["query"]` on click)
+- [x] Call `run_agent()` on submit and store result
+- [x] Display guardrail warnings (`result.guardrail_warnings`)
+- [x] Render agent reasoning trace (`result.reasoning_steps`)
+- [x] Replace placeholder song cards with `result.songs[:3]` and `result.explanations`
+- [x] Render songs 4–10 as compact list (`result.songs[3:]`)
+- [x] Implement Load More pagination
+
+## UI Iteration 2 — Polish
+- [x] Human-readable explanations — `explain_results` tool now accepts `explanations` input; Claude writes social-proof sentences from Tavily context instead of raw score labels
+- [x] Remove confidence badge — `st.metric("Confidence", ...)` removed from results section
+- [x] Fix slider reset — added `key="gaussian_weight"` so slider value persists across `st.rerun()` calls
+
+## UI Iteration 3 — Deduplication & Song Count
+- [x] Fix duplicate songs — `seen_ids` set in session state; Load More filters against it before appending
+- [x] Fix 400 errors from Spotify — cap genres at 2 terms, quote multi-word artist names, add per-query fallback search
+- [x] Fix short song lists — top-up pass fills remaining slots with a simpler genre-only search when primary query returns fewer than `limit` results (Spotify Client Credentials hard-caps search at 10)
+
+## UI Iteration 4 — Scoring & Reasoning
+- [x] Clear stale reasoning — `st.session_state.result = None` before each new run; expander labeled `Agent Reasoning — "query"` so users know which run it belongs to
+- [x] Fix identical scores — added `synthwave`, `trap`, `chill`, `rap`, `workout`, `focus` to `_GENRE_DEFAULTS`; applied position-based feature variation (±0.25 energy, ±25 BPM tempo) so Gaussian scores spread meaningfully across tracks
+- [x] Artist deduplication — post-ranking pass pushes repeat artists to the back of the list; skipped when user explicitly requested a specific artist
 
 ## Tests
 - [ ] Run existing tests and confirm they pass — `pytest`

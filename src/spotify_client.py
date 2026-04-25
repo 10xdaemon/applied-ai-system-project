@@ -36,6 +36,12 @@ _GENRE_DEFAULTS: dict[str, dict] = {
     "metal":      {"energy": 0.95, "tempo": 155, "acousticness": 0.05, "speechiness": 0.05},
     "acoustic":   {"energy": 0.40, "tempo": 90,  "acousticness": 0.85, "speechiness": 0.04},
     "indie":      {"energy": 0.55, "tempo": 110, "acousticness": 0.35, "speechiness": 0.05},
+    "synthwave":  {"energy": 0.78, "tempo": 122, "acousticness": 0.10, "speechiness": 0.03},
+    "trap":       {"energy": 0.82, "tempo": 140, "acousticness": 0.08, "speechiness": 0.18},
+    "chill":      {"energy": 0.35, "tempo": 82,  "acousticness": 0.55, "speechiness": 0.04},
+    "rap":        {"energy": 0.78, "tempo": 100, "acousticness": 0.12, "speechiness": 0.22},
+    "workout":    {"energy": 0.90, "tempo": 140, "acousticness": 0.05, "speechiness": 0.08},
+    "focus":      {"energy": 0.38, "tempo": 78,  "acousticness": 0.62, "speechiness": 0.03},
 }
 _FALLBACK = {"energy": 0.50, "tempo": 100, "acousticness": 0.40, "speechiness": 0.05}
 
@@ -106,20 +112,44 @@ def fetch_recommendations(
     """
     query_parts: list[str] = []
     if seed_artists:
-        query_parts.append(f"artist:{seed_artists[0]}")
+        artist_name = seed_artists[0]
+        # Quote multi-word artist names so Spotify parses them correctly
+        if " " in artist_name:
+            query_parts.append(f'artist:"{artist_name}"')
+        else:
+            query_parts.append(f"artist:{artist_name}")
     if seed_genres:
-        query_parts.extend(seed_genres)
+        # Limit to 2 genre terms — Spotify's search rejects longer mixed queries
+        query_parts.extend(seed_genres[:2])
     if not query_parts:
         query_parts.append("top hits")
 
-    response = requests.get(
-        f"{_API_BASE}/search",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"q": " ".join(query_parts), "type": "track", "limit": limit},
-        timeout=10,
-    )
-    response.raise_for_status()
-    tracks = response.json().get("tracks", {}).get("items", [])
+    def _do_search(q: str) -> list:
+        resp = requests.get(
+            f"{_API_BASE}/search",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"q": q, "type": "track", "limit": limit},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json().get("tracks", {}).get("items", [])
+
+    try:
+        tracks = _do_search(" ".join(query_parts))
+    except requests.exceptions.HTTPError:
+        tracks = []
+
+    # If the primary query returned fewer tracks than requested, top up with a
+    # broader genre-only search (Spotify Client Credentials caps search at 10).
+    if len(tracks) < limit:
+        needed = limit - len(tracks)
+        seen_ids = {t["id"] for t in tracks}
+        fallback_q = seed_genres[0] if seed_genres else "top hits"
+        try:
+            extra = _do_search(fallback_q)
+            tracks += [t for t in extra if t["id"] not in seen_ids][:needed]
+        except requests.exceptions.HTTPError:
+            pass
 
     if not tracks:
         return []
@@ -129,20 +159,29 @@ def fetch_recommendations(
     energy = defaults["energy"]
     acousticness = defaults["acousticness"]
 
+    n = max(1, len(tracks) - 1)
     songs: list[Song] = []
     for i, track in enumerate(tracks):
         images = track.get("album", {}).get("images", [])
+        # Vary features by search-result position: Spotify returns tracks in relevance
+        # order, so position 0 is most genre-representative (treat as "most popular").
+        # This creates score spread so Gaussian ranking is meaningful.
+        relevance = 1.0 - (i / n)   # 1.0 at i=0 → 0.0 at last result
+        deviation = relevance - 0.5  # +0.5 → –0.5
+        track_energy = max(0.05, min(0.98, energy + deviation * 0.25))
+        track_tempo  = max(50,   min(200,  defaults["tempo"] + deviation * 25))
+        track_acous  = max(0.02, min(0.95, acousticness - deviation * 0.15))
         songs.append(Song(
             id=i + 1,
             title=track["name"],
             artist=track["artists"][0]["name"],
             genre=primary_genre,
-            mood=_infer_mood(energy, acousticness),
-            energy=energy,
-            tempo_bpm=defaults["tempo"],
+            mood=_infer_mood(track_energy, track_acous),
+            energy=track_energy,
+            tempo_bpm=track_tempo,
             valence=0.5,
             danceability=0.5,
-            acousticness=acousticness,
+            acousticness=track_acous,
             speechiness=defaults["speechiness"],
             instrumentalness=0.0,
             cover_art_url=images[0]["url"] if images else "",

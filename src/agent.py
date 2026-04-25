@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from dotenv import load_dotenv
 from tavily import TavilyClient
-from src.recommender import Song, UserProfile, Recommender
+from src.recommender import Song, UserProfile
 from src.spotify_client import get_token, fetch_recommendations
 from src.scorer import gaussian_score_normalized, llm_relevance_batch, blend
 from src.guardrails import validate_query, validate_profile, confidence_score
@@ -121,11 +121,25 @@ _TOOLS = [
     },
     {
         "name": "explain_results",
-        "description": "Generate score-breakdown explanations for the top 3 songs. Call last.",
+        "description": (
+            "Generate human-readable explanations for the top 3 songs using the editorial "
+            "context from your Tavily search. Call last."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {},
-            "required": [],
+            "properties": {
+                "explanations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "One short sentence per top-3 song (12 words max) explaining why it fits "
+                        "the user's situation. Draw on real-world context from your Tavily search "
+                        "— e.g. 'Students say this helps them focus' or "
+                        "'Popular on late-night driving playlists'."
+                    ),
+                }
+            },
+            "required": ["explanations"],
         },
     },
 ]
@@ -230,6 +244,20 @@ def run_agent(query: str, gaussian_weight: float = 0.5) -> AgentResult:
             blended = blend(g_scores, llm_scores, gaussian_weight)
 
             ranked = sorted(zip(songs, blended), key=lambda x: x[1], reverse=True)
+
+            # Deduplicate by artist only when no specific artist was requested.
+            # If the user asked for a Carti playlist, all Carti songs should stay up front.
+            if not state["seed_artists"]:
+                seen_artists: set[str] = set()
+                deduped, overflow = [], []
+                for song, sc in ranked:
+                    if song.artist not in seen_artists:
+                        seen_artists.add(song.artist)
+                        deduped.append((song, sc))
+                    else:
+                        overflow.append((song, sc))
+                ranked = deduped + overflow
+
             state["songs"] = [s for s, _ in ranked]
             state["blended_scores"] = [sc for _, sc in ranked]
 
@@ -240,18 +268,9 @@ def run_agent(query: str, gaussian_weight: float = 0.5) -> AgentResult:
             return json.dumps({"ranked_songs": top_summaries})
 
         if name == "explain_results":
-            songs = state["songs"][:3]
-            profile = state["profile"]
-            if not songs or not profile:
-                return json.dumps({"error": "No ranked songs available."})
-
-            explanations = []
-            for song in songs:
-                _, reasons = Recommender.score(profile, song)
-                explanations.append(" | ".join(reasons))
-
-            state["explanations"] = explanations
-            return json.dumps({"explanations": explanations})
+            explanations = inputs.get("explanations", [])
+            state["explanations"] = explanations[:3]
+            return json.dumps({"explanations": explanations[:3]})
 
         return json.dumps({"error": f"Unknown tool: {name}"})
 
