@@ -98,3 +98,20 @@ Bugs discovered during live UI testing across iterations 2–4.
 2. Used search-result **position** as a relevance proxy: position 0 (Spotify's top result) gets +0.5 deviation, the last result gets −0.5. This spreads energy (±0.25), tempo (±25 BPM), and acousticness (±0.15) across the fetched tracks, creating meaningful score differentiation.
 3. Added post-ranking artist deduplication in the `score_songs` handler: keeps the highest-scored song per artist at the front and pushes duplicates to the back of the list (still visible in "More tracks"). Dedup is skipped when the user explicitly requested a specific artist.
 **Files:** `src/spotify_client.py` — `_GENRE_DEFAULTS`, `fetch_recommendations`; `src/agent.py` — `score_songs` handler
+
+---
+
+## Iteration 5
+
+### General queries return songs dominated by one artist
+**Status:** Solved
+**Screenshot:** `iterui/lack of variety.png`
+**Symptom:** "I'm about to clean. Make me a playlist" returned all 10 slots as Dua Lipa songs, with the same song ("Cold Heart - PNAU Remix") appearing twice.
+**Root cause (2 parts):**
+1. The `parse_user_intent` tool schema described `seed_artists` as "Artist names mentioned or implied." The word "implied" caused the agent to autonomously invent a seed artist (Dua Lipa for upbeat pop cleaning music) even when the user never mentioned one. This sent `artist:Dua Lipa pop` to Spotify, returning 10 Dua Lipa tracks.
+2. The previous artist dedup guard (`if not state["seed_artists"]`) skipped deduplication entirely when any seed artist was present — including agent-invented ones — making the problem invisible until now.
+**Fix:**
+1. Tightened `seed_artists` description in both `parse_user_intent` and `spotify_fetch` tool schemas: "Artist names the user EXPLICITLY mentioned in their query. Leave empty [] for general activity queries — do NOT invent artists." This is the root fix.
+2. Added title-level deduplication (case-insensitive) before artist dedup to catch same-song duplicates with different Spotify IDs (single vs album version).
+3. Changed artist dedup from max-1 to max-2 per artist, and removed the `seed_artists` guard so it always runs.
+**Files:** `src/agent.py` — `parse_user_intent` tool schema, `spotify_fetch` tool schema, `score_songs` handler

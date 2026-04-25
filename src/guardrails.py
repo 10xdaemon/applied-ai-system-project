@@ -1,5 +1,6 @@
 """Input validation and output confidence checks for the AI Playlist Builder."""
 
+import re
 from src.recommender import Song, UserProfile, MOOD_GRAPH
 
 _TEMPO_MIN = 52.0
@@ -10,6 +11,8 @@ MUSIC_KEYWORDS = {
     "play", "vibe", "vibes", "beat", "beats", "study", "workout", "party",
     "drive", "relax", "chill", "focus", "sleep", "run", "gym", "artist",
     "album", "genre", "mood", "energy", "upbeat", "mellow", "hype",
+    "hits", "suggest", "recommend", "tune", "tunes", "banger", "bangers",
+    "jam", "jams", "mix", "singer", "rapper", "band",
 }
 
 
@@ -53,7 +56,7 @@ def validate_query(query: str) -> list[str]:
         warnings.append("Query is empty. Please describe what you're about to do.")
         return warnings
 
-    words = set(query.lower().split())
+    words = set(re.sub(r"[^\w\s]", "", query.lower()).split())
     if not words & MUSIC_KEYWORDS:
         warnings.append(
             "Your query doesn't mention music or an activity. "

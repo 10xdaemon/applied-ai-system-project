@@ -1,10 +1,12 @@
+import threading
+import time
 import streamlit as st
 from src.agent import run_agent, AgentResult
 from src.spotify_client import get_token, fetch_recommendations
-from src.scorer import gaussian_score_normalized, blend
+from src.scorer import gaussian_score_normalized
 from src.recommender import UserProfile
 
-st.set_page_config(page_title="AI Playlist Builder", page_icon="🎵", layout="wide")
+st.set_page_config(page_title="Claude FM", page_icon="🎵", layout="wide")
 
 # ── Session state initialization ───────────────────────────────────────────────
 if "query" not in st.session_state:
@@ -33,7 +35,7 @@ with st.sidebar:
     st.header("Settings")
 
     gaussian_weight = st.slider(
-        "Algorithm  ←→  AI",
+        "Algorithm  ←→   app",
         min_value=0.0,
         max_value=1.0,
         value=0.5,
@@ -59,17 +61,25 @@ with st.sidebar:
     st.caption("API keys loaded from .env")
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-st.title("🎵 AI Playlist Builder")
-st.caption("Type what you're about to do and get a personalized playlist.")
+left, center, right = st.columns([1, 2, 1])
+with center:
+    st.markdown("<h1 style='text-align:center'>Claude FM</h1>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='text-align:center; color:gray; margin-top:-8px'>"
+        "Type what you're about to do and get a personalized playlist.</p>",
+        unsafe_allow_html=True,
+    )
 
-query = st.text_area(
-    "What are you up to?",
-    key="query",
-    placeholder="e.g. 'create a playlist for studying' or 'my friend loves Bad Bunny, we're at a party'",
-    height=80,
-)
+    query = st.text_area(
+        "What are you up to?",
+        key="query",
+        placeholder="e.g. 'create a playlist for studying' or 'my friend loves Bad Bunny, we're at a party'",
+        height=80,
+    )
 
-submitted = st.button("Build Playlist", type="primary")
+    _, btn_col = st.columns([3, 1])
+    with btn_col:
+        submitted = st.button("Build Playlist", type="primary", use_container_width=True)
 
 if submitted and query.strip():
     cache_miss = (
@@ -78,31 +88,73 @@ if submitted and query.strip():
     )
     if cache_miss:
         st.session_state.result = None
-        with st.spinner("Building your playlist..."):
-            st.session_state.result = run_agent(query, gaussian_weight)
-            st.session_state.result_query = query
-            st.session_state.last_query = query
-            st.session_state.last_weight = gaussian_weight
-            st.session_state.extra_songs = []
-            st.session_state.extra_scores = []
-            st.session_state.seen_ids = {s.spotify_id for s in st.session_state.result.songs if s.spotify_id}
-            # Extract seeds and profile from reasoning steps for Load More
-            for step in st.session_state.result.reasoning_steps:
-                if step["tool"] == "parse_user_intent":
-                    inp = step["input"]
-                    st.session_state.seeds = {
-                        "artists": inp.get("seed_artists", []),
-                        "genres": inp.get("seed_genres", []),
-                    }
-                    st.session_state.profile = UserProfile(
-                        preferred_mood=inp["preferred_mood"],
-                        preferred_genre=inp["preferred_genre"],
-                        target_energy=float(inp["target_energy"]),
-                        target_tempo_bpm=float(inp["target_tempo_bpm"]),
-                        target_acousticness=float(inp["target_acousticness"]),
-                        target_speechiness=float(inp["target_speechiness"]),
-                        sigma=float(inp["sigma"]),
+
+        _MUSICAL_FACTS = [
+            "The world's oldest known song is 3,400 years old — a Hurrian hymn carved on a clay tablet.",
+            "A piano has 12,000 parts, 10,000 of which are moving.",
+            "'Happy Birthday to You' was the first song broadcast from space (1965).",
+            "The loudest band ever recorded is KISS at 136 dB — louder than a jet engine.",
+            "Beethoven was completely deaf when he composed his 9th Symphony.",
+            "The 'Mozart Effect' was later debunked — music won't make you smarter, but it will make you happier.",
+            "Vinyl records outsold CDs for the first time since 1987 — in 2022.",
+            "A song stuck in your head is called an 'earworm' (Ohrwurm in German).",
+            "The most covered song ever is 'Yesterday' by The Beatles — over 2,200 recorded versions.",
+            "Listening to music releases dopamine, the same chemical triggered by eating chocolate.",
+            "The electric guitar was invented in 1931 by George Beauchamp.",
+            "'Bohemian Rhapsody' was rejected by radio stations for being too long — it became a #1 hit anyway.",
+            "The human ear can distinguish over 400,000 different sounds.",
+            "Hip-hop is now the most-streamed genre globally, overtaking rock.",
+            "Some whales sing songs that last up to 22 hours.",
+        ]
+
+        _, _c, _ = st.columns([1, 2, 1])
+        with _c:
+            st.markdown(
+                "<style>[data-testid='stSpinner']>div{justify-content:center}</style>",
+                unsafe_allow_html=True,
+            )
+            result_container: dict = {}
+
+            def _run_agent() -> None:
+                result_container["result"] = run_agent(query, gaussian_weight)
+
+            thread = threading.Thread(target=_run_agent, daemon=True)
+            thread.start()
+            idx = 0
+            with st.spinner("Building your playlist..."):
+                fact_placeholder = st.empty()
+                while thread.is_alive():
+                    fact_placeholder.markdown(
+                        f"<p style='text-align:center;color:gray'>🎵 {_MUSICAL_FACTS[idx % len(_MUSICAL_FACTS)]}</p>",
+                        unsafe_allow_html=True,
                     )
+                    idx += 1
+                    time.sleep(5.0)
+            fact_placeholder.empty()
+
+        st.session_state.result = result_container["result"]
+        st.session_state.result_query = query
+        st.session_state.last_query = query
+        st.session_state.last_weight = gaussian_weight
+        st.session_state.extra_songs = []
+        st.session_state.extra_scores = []
+        st.session_state.seen_ids = {s.spotify_id for s in st.session_state.result.songs if s.spotify_id}
+        for step in st.session_state.result.reasoning_steps:
+            if step["tool"] == "parse_user_intent":
+                inp = step["input"]
+                st.session_state.seeds = {
+                    "artists": inp.get("seed_artists", []),
+                    "genres": inp.get("seed_genres", []),
+                }
+                st.session_state.profile = UserProfile(
+                    preferred_mood=inp["preferred_mood"],
+                    preferred_genre=inp["preferred_genre"],
+                    target_energy=float(inp["target_energy"]),
+                    target_tempo_bpm=float(inp["target_tempo_bpm"]),
+                    target_acousticness=float(inp["target_acousticness"]),
+                    target_speechiness=float(inp["target_speechiness"]),
+                    sigma=float(inp["sigma"]),
+                )
 
 elif submitted and not query.strip():
     st.warning("Please enter a query before building a playlist.")
@@ -116,30 +168,34 @@ if result is not None:
             st.warning(w)
 
     # ── Agent reasoning trace ────────────────────────────────────────────────
-    with st.expander(f"Agent Reasoning — \"{st.session_state.result_query}\"", expanded=False):
-        for step in result.reasoning_steps:
-            st.markdown(f"**`{step['tool']}`**")
-            st.json(step["input"], expanded=False)
-            st.caption(str(step["output"])[:300])
-            st.divider()
+    _, _exp_c, _ = st.columns([1, 2, 1])
+    with _exp_c:
+        with st.expander(f"under the hood — \"{st.session_state.result_query}\"", expanded=False):
+            for step in result.reasoning_steps:
+                st.markdown(f"**`{step['tool']}`**")
+                st.json(step["input"], expanded=False)
+                st.caption(str(step["output"])[:300])
+                st.divider()
 
     # ── Top 3 songs: cover art + explanation ─────────────────────────────────
-    st.subheader("Your Playlist")
-    all_songs = result.songs + st.session_state.extra_songs
-    all_scores = result.scores + st.session_state.extra_scores
+    left, center, right = st.columns([1, 3, 1])
+    with center:
+        st.subheader("Your Playlist")
+        all_songs = result.songs + st.session_state.extra_songs
+        all_scores = result.scores + st.session_state.extra_scores
 
-    if result.songs:
-        cols = st.columns(3)
-        for i, (col, song, score, explanation) in enumerate(
-            zip(cols, result.songs[:3], result.scores[:3], result.explanations)
-        ):
-            with col:
-                img_url = song.cover_art_url or f"https://placehold.co/200x200?text={i + 1}"
-                st.image(img_url, width=200)
-                st.markdown(f"**{song.title}**")
-                st.caption(f"{song.artist} · {song.genre}")
-                st.progress(min(max(score, 0.0), 1.0), text=f"{score:.2f}")
-                st.markdown(f"_{explanation}_")
+        if result.songs:
+            cols = st.columns(3)
+            for i, (col, song, score, explanation) in enumerate(
+                zip(cols, result.songs[:3], result.scores[:3], result.explanations)
+            ):
+                with col:
+                    img_url = song.cover_art_url or f"https://placehold.co/200x200?text={i + 1}"
+                    st.image(img_url, width=200)
+                    st.markdown(f"**{song.title}**")
+                    st.caption(f"{song.artist} · {song.genre}")
+                    st.progress(min(max(score, 0.0), 1.0), text=f"{score:.2f}")
+                    st.markdown(f"_{explanation}_")
 
     # ── Songs 4–10: compact list ─────────────────────────────────────────────
     if len(all_songs) > 3:

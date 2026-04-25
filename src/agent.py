@@ -56,12 +56,16 @@ _TOOLS = [
                 "seed_artists": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Artist names mentioned or implied",
+                    "description": (
+                        "Artist names the user EXPLICITLY mentioned in their query. "
+                        "Leave empty [] for general activity queries like 'music for cleaning' "
+                        "or 'late-night drive playlist' — do NOT invent artists."
+                    ),
                 },
                 "seed_genres": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Genre keywords for Spotify search",
+                    "description": "Genre keywords for Spotify search (1–2 terms)",
                 },
                 "user_description": {
                     "type": "string",
@@ -91,11 +95,19 @@ _TOOLS = [
     },
     {
         "name": "spotify_fetch",
-        "description": "Fetch 10 song candidates from Spotify. Call after tavily_search.",
+        "description": (
+            "Fetch 10 song candidates from Spotify. Call after tavily_search. "
+            "Only pass seed_artists if the user explicitly named an artist — "
+            "otherwise leave it empty and rely on seed_genres for variety."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "seed_artists": {"type": "array", "items": {"type": "string"}},
+                "seed_artists": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Only artists the user explicitly requested. Empty [] for general queries.",
+                },
                 "seed_genres": {"type": "array", "items": {"type": "string"}},
                 "target_energy": {"type": "number"},
                 "target_tempo": {"type": "number"},
@@ -245,18 +257,31 @@ def run_agent(query: str, gaussian_weight: float = 0.5) -> AgentResult:
 
             ranked = sorted(zip(songs, blended), key=lambda x: x[1], reverse=True)
 
-            # Deduplicate by artist only when no specific artist was requested.
-            # If the user asked for a Carti playlist, all Carti songs should stay up front.
-            if not state["seed_artists"]:
-                seen_artists: set[str] = set()
-                deduped, overflow = [], []
-                for song, sc in ranked:
-                    if song.artist not in seen_artists:
-                        seen_artists.add(song.artist)
-                        deduped.append((song, sc))
-                    else:
-                        overflow.append((song, sc))
-                ranked = deduped + overflow
+            # Deduplicate by title (case-insensitive) to remove same-song duplicates
+            # that Spotify returns with different IDs (e.g. single vs album version).
+            seen_titles: set[str] = set()
+            title_deduped = []
+            for song, sc in ranked:
+                key = song.title.lower().strip()
+                if key not in seen_titles:
+                    seen_titles.add(key)
+                    title_deduped.append((song, sc))
+            ranked = title_deduped
+
+            # Cap each artist at 2 songs so no single artist dominates the playlist.
+            # The seed_artist check was removed — the agent often picks seed artists
+            # autonomously (e.g. "Dua Lipa" for a cleaning query) without the user
+            # requesting them, which was causing all 10 slots to be one artist.
+            artist_counts: dict[str, int] = {}
+            deduped, overflow = [], []
+            for song, sc in ranked:
+                count = artist_counts.get(song.artist, 0)
+                if count < 2:
+                    artist_counts[song.artist] = count + 1
+                    deduped.append((song, sc))
+                else:
+                    overflow.append((song, sc))
+            ranked = deduped + overflow
 
             state["songs"] = [s for s, _ in ranked]
             state["blended_scores"] = [sc for _, sc in ranked]

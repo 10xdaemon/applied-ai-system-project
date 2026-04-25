@@ -39,11 +39,15 @@
 - [x] Artist deduplication — post-ranking pass pushes repeat artists to the back of the list; skipped when user explicitly requested a specific artist
 
 ## Tests
-- [ ] Run existing tests and confirm they pass — `pytest`
-- [ ] Add tests for `scorer.py` (`gaussian_score_normalized`, `blend`)
-- [ ] Add tests for `guardrails.py` (`validate_profile`, `confidence_score`, `genre_dominance_flag`)
-- [ ] Implement `tests/eval_harness.py` — run adversarial profiles and log results
+- [x] Run existing tests and confirm they pass — `pytest`
+- [x] Add tests for `scorer.py` (`gaussian_score_normalized`, `blend`)
+- [x] Add tests for `guardrails.py` (`validate_profile`, `confidence_score`, `genre_dominance_flag`)
+- [x] Implement `tests/eval_harness.py` — run adversarial profiles and log results
 
 ## Docs (last)
 - [ ] Rewrite `README.md` to reflect full project scope
 - [ ] Update `model_card.md` to reflect full system
+
+## Possible Features
+- [ ] Some random facts about music while loading
+- [ ] center the test to mimic how a chat interface looks
