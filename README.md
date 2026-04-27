@@ -85,8 +85,16 @@ pytest tests/
 ---
 
 ## Demo
+### Video Walkthrough
 
-*Demo screenshots pending.*
+[![Watch on Loom](https://img.shields.io/badge/Watch%20on-Loom-625DF5?logo=loom)](https://www.loom.com/share/66d861635ab7455596be885d922a7b35)
+---
+
+<div align="center">
+  <img src="assets/demo1.png" alt="Demo 1" width="720">
+  <img src="assets/demo2.png" alt="Demo 2" width="720">
+  <img src="assets/demo3.png" alt="Demo 3" width="720">
+</div>
 
 ---
 
